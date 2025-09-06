@@ -39,11 +39,10 @@ $(WOBJ): $(WSRC)
 clean:
 	rm -f surf $(OBJ)
 	rm -f $(WLIB) $(WOBJ)
-
-distclean: clean
 	rm -f config.h surf-$(VERSION).tar.gz
+	rm -f *.orig *.rej
 
-dist: distclean
+dist: clean
 	mkdir -p surf-$(VERSION)
 	cp -R LICENSE Makefile config.mk config.def.h README \
 	    surf-open.sh arg.h TODO.md surf.png \

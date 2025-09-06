@@ -218,8 +218,8 @@ static Alias aliases[] = {
     { "ri",   "https://raw.githubusercontent.com/libreddit/libreddit-instances/refs/heads/master/instances.md" }
 };
 
-static Redirect uri_redirects[] = {
+static SiteSpecific uri_redirects[] = {
        { "https://youtube.com/(.*)", "https://inv.nadeko.net/%s",          { 1 } },
-       { "https://reddit.com/(.*)",  "https://discuss.whatever.social/%s", { 1 } }
+       { "https://reddit.com/(.*)",  "https://discuss.whatever.social/%s", { 0 } }
 }
 

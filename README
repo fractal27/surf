@@ -1,6 +1,8 @@
 surf - simple webkit-based browser
 ==================================
 surf is a simple Web browser based on WebKit/GTK+.
+this is a fork by fractal27
+
 
 Requirements
 ------------
@@ -21,7 +23,7 @@ necessary as root):
 Running surf
 ------------
 run
-	surf [URI]
+	surf [URI/ALIAS]
 
 See the manpage for further options.
 
@@ -35,6 +37,18 @@ which is run like this:
 Further invocations of the script will run surf with the specified URI in this
 instance of tabbed.
 
+Patches
+-----------
+
+- modal.diff
+- surf-2.0-homepage.diff
+- surf-proxyconfig-20240905-9ef79b.diff
+- surf-quit_hotkey-20210830-11dca18.diff
+- surf-uri-aliases-20220930-089272b.diff
+
 [0] http://tools.suckless.org/dmenu
 [1] http://tools.suckless.org/tabbed
+
+
+
 

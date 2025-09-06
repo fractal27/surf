@@ -51,6 +51,12 @@ enum {
 	OnAny   = OnDoc | OnLink | OnImg | OnMedia | OnEdit | OnBar | OnSel,
 };
 
+enum {
+	CustomProxy = WEBKIT_NETWORK_PROXY_MODE_CUSTOM,
+	SystemProxy = WEBKIT_NETWORK_PROXY_MODE_DEFAULT,
+	NoProxy   = WEBKIT_NETWORK_PROXY_MODE_NO_PROXY,
+};
+
 typedef enum {
 	AccessMicrophone,
 	AccessWebcam,
@@ -73,6 +79,9 @@ typedef enum {
 	MediaManualPlay,
 	PDFJSviewer,
 	PreferredLanguages,
+	ProxyIgnoreHosts,
+	ProxyMode,
+	ProxyUrl,
 	RunInFullscreen,
 	ScrollBars,
 	ShowIndicators,
@@ -143,6 +152,18 @@ typedef struct {
 	char *file;
 	regex_t re;
 } SiteSpecific;
+
+typedef struct {
+	char *regex;
+	char *destination;
+	regex_t re;
+} Redirect;
+
+
+typedef struct {
+    const char* alias;
+    const char* uri;
+} Alias;
 
 /* Surf */
 static void die(const char *errstr, ...);
@@ -232,6 +253,7 @@ static void scrollv(Client *c, const Arg *a);
 static void scrollh(Client *c, const Arg *a);
 static void navigate(Client *c, const Arg *a);
 static void stop(Client *c, const Arg *a);
+static void quit(Client *c, const Arg *a);
 static void toggle(Client *c, const Arg *a);
 static void togglefullscreen(Client *c, const Arg *a);
 static void togglecookiepolicy(Client *c, const Arg *a);
@@ -242,6 +264,7 @@ static void find(Client *c, const Arg *a);
 static void clicknavigate(Client *c, const Arg *a, WebKitHitTestResult *h);
 static void clicknewwindow(Client *c, const Arg *a, WebKitHitTestResult *h);
 static void clickexternplayer(Client *c, const Arg *a, WebKitHitTestResult *h);
+static void insert(Client *c, const Arg *a);
 
 static char winid[64];
 static char togglestats[11];
@@ -258,6 +281,7 @@ static const char *useragent;
 static Parameter *curconfig;
 static int modparams[ParameterLast];
 static int spair[2];
+static int insertmode = 0;
 char *argv0;
 
 static ParamName loadtransient[] = {
@@ -566,12 +590,40 @@ loaduri(Client *c, const Arg *a)
 	if (g_strcmp0(uri, "") == 0)
 		return;
 
+        for (int i = 0; i < LENGTH(aliases); i++) {
+               if (strcmp(aliases[i].alias, uri) == 0) {
+                      uri = aliases[i].uri;
+                      break;
+               }
+        }
+
 	if (g_str_has_prefix(uri, "http://")  ||
 	    g_str_has_prefix(uri, "https://") ||
 	    g_str_has_prefix(uri, "file://")  ||
 	    g_str_has_prefix(uri, "webkit://") ||
 	    g_str_has_prefix(uri, "about:")) {
+                const char** matches;
+                char destination[128];
+
+                for (int i = 0; i < LENGTH(uri_redirects); i++) {
+                       if (!regcomp(&(certs[i].re), certs[i].regex, REG_EXTENDED)) {
+                               certs[i].file = g_strconcat(certdir, "/", certs[i].file,
+                                                           NULL);
+                       } else {
+                               fprintf(stderr, "Could not compile regex: %s\n",
+                                       certs[i].regex);
+                               certs[i].regex = NULL;
+                       }
+
+                       if(!regexec(&(uri_redirects[i].re), uri, uri_redirects[i].re.re_nsub, matches, 0)) {
+                              snprintf(destination,128,uri_redirects[i].destination, );
+                       }
+                }
+
 		url = g_strdup(uri);
+
+                printf("loading uri %s\n",url);
+
 	} else {
 		if (uri[0] == '~')
 			apath = untildepath(uri);
@@ -612,10 +664,13 @@ geturi(Client *c)
 void
 setatom(Client *c, int a, const char *v)
 {
-	XChangeProperty(dpy, c->xid,
-	                atoms[a], atoms[AtomUTF8], 8, PropModeReplace,
-	                (unsigned char *)v, strlen(v) + 1);
-	XSync(dpy, False);
+       if (GDK_IS_X11_DISPLAY (dpy))
+       {
+              XChangeProperty(dpy, c->xid,
+                            atoms[a], atoms[AtomUTF8], 8, PropModeReplace,
+                            (unsigned char *)v, strlen(v) + 1);
+              XSync(dpy, False);
+       }
 }
 
 const char *
@@ -1105,6 +1160,7 @@ newview(Client *c, WebKitWebView *rv)
 	WebKitWebContext *context;
 	WebKitCookieManager *cookiemanager;
 	WebKitUserContentManager *contentmanager;
+	WebKitNetworkProxySettings *proxysettings;
 
 	/* Webview */
 	if (rv) {
@@ -1159,6 +1215,28 @@ newview(Client *c, WebKitWebView *rv)
 		    webkit_web_context_get_website_data_manager(context),
 		    curconfig[StrictTLS].val.i ? WEBKIT_TLS_ERRORS_POLICY_FAIL :
 		    WEBKIT_TLS_ERRORS_POLICY_IGNORE);
+		/* proxy */
+		switch (curconfig[ProxyMode].val.i) {
+			case CustomProxy:
+				proxysettings = webkit_network_proxy_settings_new(
+					curconfig[ProxyUrl].val.v,
+					curconfig[ProxyIgnoreHosts].val.v);
+				webkit_web_context_set_network_proxy_settings(context,
+					CustomProxy,
+					proxysettings);
+				break;
+			case NoProxy:
+				webkit_web_context_set_network_proxy_settings(context,
+					NoProxy,
+					NULL);
+				break;
+			case SystemProxy:
+			default:
+				webkit_web_context_set_network_proxy_settings(context,
+					SystemProxy,
+					proxysettings);
+				break;
+		}
 		/* disk cache */
 		webkit_web_context_set_cache_model(context,
 		    curconfig[DiskCache].val.i ? WEBKIT_CACHE_MODEL_WEB_BROWSER :
@@ -1319,7 +1397,11 @@ winevent(GtkWidget *w, GdkEvent *e, Client *c)
 		updatetitle(c);
 		break;
 	case GDK_KEY_PRESS:
-		if (!curconfig[KioskMode].val.i) {
+		if (!curconfig[KioskMode].val.i &&
+		    !insertmode ||
+		    CLEANMASK(e->key.state) == (MODKEY|GDK_SHIFT_MASK) ||
+		    CLEANMASK(e->key.state) == (MODKEY) ||
+		    gdk_keyval_to_lower(e->key.keyval) == (GDK_KEY_Escape)) {
 			for (i = 0; i < LENGTH(keys); ++i) {
 				if (gdk_keyval_to_lower(e->key.keyval) ==
 				    keys[i].keyval &&
@@ -1365,7 +1447,10 @@ showview(WebKitWebView *v, Client *c)
 	gtk_widget_grab_focus(GTK_WIDGET(c->view));
 
 	gwin = gtk_widget_get_window(GTK_WIDGET(c->win));
-	c->xid = gdk_x11_window_get_xid(gwin);
+#ifdef GDK_WINDOWING_X11
+        if (GDK_IS_X11_DISPLAY (dpy))
+#endif
+               c->xid = gdk_x11_window_get_xid(gwin);
 	updatewinid(c);
 	if (showxid) {
 		gdk_display_sync(gtk_widget_get_display(c->win));
@@ -1718,7 +1803,17 @@ decideresource(WebKitPolicyDecision *d, Client *c)
 			webkit_policy_decision_ignore(d);
 			return;
 		}
-	}
+        } else {
+#ifdef USE_BLOCKLIST
+               for(int i = 0; i < BLOCKLIST_N; i++){
+                      if(g_str_has_prefix(uri, BLOCKLIST[i])){
+                             webkit_policy_decision_ignore(d);
+                             printf("Not allowed: URI=`%s`|BLOCKED=`%s*`|INDEX=%i\n", uri, BLOCKLIST[i], i);
+                             return;
+                      } //else printf("+");
+               }
+#endif
+        }
 
 	if (webkit_response_policy_decision_is_mime_type_supported(r)) {
 		webkit_policy_decision_use(d);
@@ -1904,6 +1999,13 @@ stop(Client *c, const Arg *a)
 }
 
 void
+quit(Client *c, const Arg *a)
+{
+	cleanup();
+	exit(0);
+}
+
+void
 toggle(Client *c, const Arg *a)
 {
 	curconfig[a->i].val.i ^= 1;
@@ -1987,6 +2089,13 @@ clickexternplayer(Client *c, const Arg *a, WebKitHitTestResult *h)
 	arg = (Arg)VIDEOPLAY(webkit_hit_test_result_get_media_uri(h));
 	spawn(c, &arg);
 }
+
+void
+insert(Client *c, const Arg *a)
+{
+       insertmode = a->i;
+}
+
 
 int
 main(int argc, char *argv[])
@@ -2120,7 +2229,11 @@ main(int argc, char *argv[])
 	if (argc > 0)
 		arg.v = argv[0];
 	else
+#ifdef HOMEPAGE
+		arg.v = HOMEPAGE;
+#else
 		arg.v = "about:blank";
+#endif
 
 	setup();
 	c = newclient(NULL);
