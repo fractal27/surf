@@ -157,6 +157,7 @@ typedef struct {
 	char *regex;
 	char *destination;
 	regex_t re;
+        size_t nmatches;
 } Redirect;
 
 
@@ -201,6 +202,7 @@ static void spawn(Client *c, const Arg *a);
 static void msgext(Client *c, char type, const Arg *a);
 static void destroyclient(Client *c);
 static void cleanup(void);
+int regex_replace(char **str, regex_t reg, const char *replace);
 
 /* GTK/WebKit */
 static WebKitWebView *newview(Client *c, WebKitWebView *rv);
@@ -409,6 +411,14 @@ setup(void)
 		}
 	}
 
+        for (i = 0; i < LENGTH(uri_redirects); ++i) {
+		if (regcomp(&(uri_redirects[i].re), uri_redirects[i].regex, REG_EXTENDED)) {
+			fprintf(stderr, "Could not compile regex: %s\n",
+			        uri_redirects[i].regex);
+			uri_redirects[i].regex = NULL;
+		}
+	}
+
 	if (!stylefile) {
 		styledir = buildpath(styledir);
 		for (i = 0; i < LENGTH(styles); ++i) {
@@ -580,6 +590,70 @@ newclient(Client *rc)
 	return c;
 }
 
+int regex_replace(char **str, regex_t reg, const char *replace) {
+       // replaces regex in pattern with replacement observing capture groups
+       // *str MUST be free-able, i.e. obtained by strdup, malloc, ...
+       // back references are indicated by char codes 1-31 and none of those chars can be used in the replacement string such as a tab.
+       // will not search for matches within replaced text, this will begin searching for the next match after the end of prev match
+       // returns:
+       //   -2 if count of back references and capture groups don't match
+       //   otherwise returns number of matches that were found and replaced
+       //
+
+       unsigned int replacements = 0;
+       // if regex can't commpile pattern, do nothing
+       // if(!regcomp(&reg, pattern, REG_EENDED)) {
+       size_t nmatch = reg.re_nsub;
+       regmatch_t m[nmatch + 1];
+       const char *rpl, *p;
+       // count back references in replace
+       int br = 0;
+       p = replace;
+       while(1) {
+              while(*++p > 31);
+              if(*p) br++;
+              else break;
+       } // if br is not equal to nmatch, leave
+       if(br != nmatch) {
+              regfree(&reg);
+              return -2;
+       }
+       // look for matches and replace
+       char *new;
+       char *search_start = *str;
+       while(!regexec(&reg, search_start, nmatch + 1, m, REG_NOTBOL)) {
+              // make enough room
+              new = (char *)malloc(strlen(*str) + strlen(replace));
+              if(!new) exit(EXIT_FAILURE);
+              *new = '\0';
+              strncat(new, *str, search_start - *str);
+              p = rpl = replace;
+              int c;
+              strncat(new, search_start, m[0].rm_so); // test before pattern
+              for(int k=0; k<nmatch; k++) {
+                     while(*++p > 31); // skip printable char
+                     c = *p;  // back reference (e.g. \1, \2, ...)
+                     strncat(new, rpl, p - rpl); // add head of rpl
+                                                               // concat match
+                     strncat(new, search_start + m[c].rm_so, m[c].rm_eo - m[c].rm_so);
+                     rpl = p++; // skip back reference, next match
+              }
+              strcat(new, p ); // trailing of rpl
+              unsigned int new_start_offset = strlen(new);
+              strcat(new, search_start + m[0].rm_eo); // trailing text in *str
+              free(*str);
+              *str = (char *)malloc(strlen(new)+1);
+              strcpy(*str,new);
+              search_start = *str + new_start_offset;
+              free(new);
+              replacements++;
+       }
+       regfree(&reg);
+       // ajust size
+       *str = (char *)realloc(*str, strlen(*str) + 1);
+       return replacements;
+}
+
 void
 loaduri(Client *c, const Arg *a)
 {
@@ -602,27 +676,24 @@ loaduri(Client *c, const Arg *a)
 	    g_str_has_prefix(uri, "file://")  ||
 	    g_str_has_prefix(uri, "webkit://") ||
 	    g_str_has_prefix(uri, "about:")) {
-                const char** matches;
-                char destination[128];
+                int finished = 1;
+
 
                 for (int i = 0; i < LENGTH(uri_redirects); i++) {
-                       if (!regcomp(&(certs[i].re), certs[i].regex, REG_EXTENDED)) {
-                               certs[i].file = g_strconcat(certdir, "/", certs[i].file,
-                                                           NULL);
-                       } else {
-                               fprintf(stderr, "Could not compile regex: %s\n",
-                                       certs[i].regex);
-                               certs[i].regex = NULL;
-                       }
-
-                       if(!regexec(&(uri_redirects[i].re), uri, uri_redirects[i].re.re_nsub, matches, 0)) {
-                              snprintf(destination,128,uri_redirects[i].destination, );
+                       url = g_strdup(uri);
+                       printf("checking regex `%s` --@> `%s`\n",uri_redirects[i].regex, uri_redirects[i].destination);
+                       if(regex_replace(&url, uri_redirects[i].re, 
+                                            uri_redirects[i].destination) > 0){
+                              printf("regex is ok: redirecting...");
+                              finished = 1;
+                              break;
                        }
                 }
 
-		url = g_strdup(uri);
+                if(!finished)
+                       url = g_strdup(uri);
 
-                printf("loading uri %s\n",url);
+
 
 	} else {
 		if (uri[0] == '~')
@@ -639,6 +710,7 @@ loaduri(Client *c, const Arg *a)
 			free(apath);
 	}
 
+        printf("loading uri %s\n",url);
 	setatom(c, AtomUri, url);
 
 	if (strcmp(url, geturi(c)) == 0) {
@@ -1810,7 +1882,7 @@ decideresource(WebKitPolicyDecision *d, Client *c)
                              webkit_policy_decision_ignore(d);
                              printf("Not allowed: URI=`%s`|BLOCKED=`%s*`|INDEX=%i\n", uri, BLOCKLIST[i], i);
                              return;
-                      } //else printf("+");
+                      }
                }
 #endif
         }

@@ -1,4 +1,5 @@
-/* modifier 0 means no modifier */
+/*",\
+	"modifier 0 means no modifier */
 static int surfuseragent    = 1;  /* Append Surf version to default WebKit user agent */
 static char *fulluseragent  = ""; /* Or override the whole user agent string */
 static char *scriptfile     = "~/.surf/script.js";
@@ -219,7 +220,8 @@ static Alias aliases[] = {
 };
 
 static Redirect uri_redirects[] = {
-       { "https://youtube.com/(.*)", "https://inv.nadeko.net/%s",          { 1 } },
-       { "https://reddit.com/(.*)",  "https://discuss.whatever.social/%s", { 1 } }
-}
+       { ".*youtube.com/.*", "https://inv.nadeko.net/\1",                  .nmatches=1 },
+       { ".*reddit.com/.*", "https://discuss.whatever.social/\1",          .nmatches=1 },
+       { "\\[([^-]+)->([^]]+)\\]", "<a href=\"\2\">\1</a>",               .nmatches=1 }
+};
 

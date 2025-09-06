@@ -1,0 +1,27 @@
+
+body {
+	background: black !important;
+}
+
+div.search-wrap--home,
+.search {
+	background: black !important;
+	font-family: monospace !important;
+}
+
+.result:hover {
+	background-color: #131313;
+}
+
+h1,h2,h3,h4 {
+	/*background-color: yellow !important;*/
+	color: #e02020 !important;
+}
+
+a {
+	color: #5050f0 !important;
+}
+
+input {
+	color: white !important;
+}

@@ -1,4 +1,5 @@
-/* modifier 0 means no modifier */
+/*",\
+	"modifier 0 means no modifier */
 static int surfuseragent    = 1;  /* Append Surf version to default WebKit user agent */
 static char *fulluseragent  = ""; /* Or override the whole user agent string */
 static char *scriptfile     = "~/.surf/script.js";
@@ -218,8 +219,9 @@ static Alias aliases[] = {
     { "ri",   "https://raw.githubusercontent.com/libreddit/libreddit-instances/refs/heads/master/instances.md" }
 };
 
-static SiteSpecific uri_redirects[] = {
-       { "https://youtube.com/(.*)", "https://inv.nadeko.net/%s",          { 1 } },
-       { "https://reddit.com/(.*)",  "https://discuss.whatever.social/%s", { 0 } }
-}
+static Redirect uri_redirects[] = {
+       { ".*youtube.com/.*", "https://inv.nadeko.net/\1",                  .nmatches=1 },
+       { ".*reddit.com/.*", "https://discuss.whatever.social/\1",          .nmatches=1 },
+       { "\\[([^-]+)->([^]]+)\\]", "<a href=\"\2\">\1</a>",               .nmatches=1 }
+};
 
