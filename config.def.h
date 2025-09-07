@@ -1,5 +1,5 @@
 /*",\
-	"modifier 0 means no modifier */
+ "modifier 0 means no modifier */
 static int surfuseragent    = 1;  /* Append Surf version to default WebKit user agent */
 static char *fulluseragent  = ""; /* Or override the whole user agent string */
 static char *scriptfile     = "~/.surf/script.js";
@@ -8,54 +8,57 @@ static char *certdir        = "~/.surf/certificates/";
 static char *cachedir       = "~/.surf/cache/";
 static char *cookiefile     = "~/.surf/cookies.txt";
 
-#define HOMEPAGE "https://duckduckgo.com/html"
+#define HOMEPAGE         "https://duckduckgo.com/html"
+#define DEFAULT_PROXY    "socks4://127.0.0.1:9050" 
 #define EDIT             { .v = (char *[]){ "/bin/sh", "-c", "editurl", NULL } }
 #define USE_BLOCKLIST
 #include "blocklist.h"
 
 /* Webkit default features */
 /* Highest priority value will be used.
- * Default parameters are priority 0
- * Per-uri parameters are priority 1
- * Command parameters are priority 2
- */
+* Default parameters are priority 0
+* Per-uri parameters are priority 1
+* Command parameters are priority 2
+*/
 static Parameter defconfig[ParameterLast] = {
-	/* parameter                    Arg value       priority */
-	[AccessMicrophone]    =       { { .i = 0 },     },
-	[AccessWebcam]        =       { { .i = 0 },     },
-	[Certificate]         =       { { .i = 0 },     },
-	[CaretBrowsing]       =       { { .i = 0 },     },
-	[CookiePolicies]      =       { { .v = "@Da" }, },
-	[DarkMode]            =       { { .i = 1 },     },
-	[DefaultCharset]      =       { { .v = "UTF-8" }, },
-	[DiskCache]           =       { { .i = 1 },     },
-	[DNSPrefetch]         =       { { .i = 0 },     },
-	[Ephemeral]           =       { { .i = 0 },     },
-	[FileURLsCrossAccess] =       { { .i = 0 },     },
-	[FontSize]            =       { { .i = 13 },    },
-	[Geolocation]         =       { { .i = 0 },     },
-	[HideBackground]      =       { { .i = 1 },     },
-	[Inspector]           =       { { .i = 0 },     },
-	[JavaScript]          =       { { .i = 0 },     },
-	[KioskMode]           =       { { .i = 0 },     },
-	[LoadImages]          =       { { .i = 1 },     },
-	[MediaManualPlay]     =       { { .i = 1 },     },
-	[PDFJSviewer]         =       { { .i = 1 },     },
-	[PreferredLanguages]  =       { { .v = (char *[]){ NULL } }, },
-	[ProxyIgnoreHosts]    =       { { .v = (char *[]){ NULL } }, },
-	[ProxyMode]           =       { { .i = SystemProxy }, },
-	[ProxyUrl]            =       { { .v = (char *) NULL }, },
-	[RunInFullscreen]     =       { { .i = 0 },     },
-	[ScrollBars]          =       { { .i = 1 },     },
-	[ShowIndicators]      =       { { .i = 1 },     },
-	[SiteQuirks]          =       { { .i = 1 },     },
-	[SmoothScrolling]     =       { { .i = 0 },     },
-	[SpellChecking]       =       { { .i = 0 },     },
-	[SpellLanguages]      =       { { .v = ((char *[]){ "en_US", NULL }) }, },
-	[StrictTLS]           =       { { .i = 1 },     },
-	[Style]               =       { { .i = 1 },     },
-	[WebGL]               =       { { .i = 0 },     },
-	[ZoomLevel]           =       { { .f = 1.0 },   },
+ /* parameter                    Arg value       priority */
+ [AccessMicrophone]    =       { { .i = 0 },     },
+ [AccessWebcam]        =       { { .i = 0 },     },
+ [Certificate]         =       { { .i = 0 },     },
+ [CaretBrowsing]       =       { { .i = 0 },     },
+ [CookiePolicies]      =       { { .v = "@Da" }, },
+ [DarkMode]            =       { { .i = 1 },     },
+ [DefaultCharset]      =       { { .v = "UTF-8" }, },
+ [DiskCache]           =       { { .i = 1 },     },
+ [DNSPrefetch]         =       { { .i = 0 },     },
+ [Ephemeral]           =       { { .i = 0 },     },
+ [FileURLsCrossAccess] =       { { .i = 0 },     },
+ [FontSize]            =       { { .i = 13 },    },
+ [Geolocation]         =       { { .i = 0 },     },
+ [HideBackground]      =       { { .i = 1 },     },
+ [Inspector]           =       { { .i = 0 },     },
+ [JavaScript]          =       { { .i = 0 },     },
+ [KioskMode]           =       { { .i = 0 },     },
+ [LoadImages]          =       { { .i = 1 },     },
+ [MediaManualPlay]     =       { { .i = 1 },     },
+ [PDFJSviewer]         =       { { .i = 1 },     },
+ [PreferredLanguages]  =       { { .v = (char *[]){ NULL } }, },
+
+ [ProxyIgnoreHosts]    =       { { .v = (char *[]){ NULL } }, },
+ [ProxyMode]           =       { { .i = CustomProxy }, },
+ [ProxyUrl]            =       { { .v = (char*) DEFAULT_PROXY}, },
+
+ [RunInFullscreen]     =       { { .i = 0 },     },
+ [ScrollBars]          =       { { .i = 1 },     },
+ [ShowIndicators]      =       { { .i = 1 },     },
+ [SiteQuirks]          =       { { .i = 1 },     },
+ [SmoothScrolling]     =       { { .i = 0 },     },
+ [SpellChecking]       =       { { .i = 0 },     },
+ [SpellLanguages]      =       { { .v = ((char *[]){ "en_US", NULL }) }, },
+ [StrictTLS]           =       { { .i = 1 },     },
+ [Style]               =       { { .i = 1 },     },
+ [WebGL]               =       { { .i = 0 },     },
+ [ZoomLevel]           =       { { .f = 1.0 },   },
 };
 
 static UriParameters uriparams[] = {
@@ -220,8 +223,14 @@ static Alias aliases[] = {
 };
 
 static Redirect uri_redirects[] = {
-       { ".*youtube.com/.*", "https://inv.nadeko.net/\1",                  .nmatches=1 },
-       { ".*reddit.com/.*", "https://discuss.whatever.social/\1",          .nmatches=1 },
-       { "\\[([^-]+)->([^]]+)\\]", "<a href=\"\2\">\1</a>",               .nmatches=1 }
+       { "[a-zA-Z1-9.]?youtube.com(.*)", "https://inv.nadeko.net/\1",                  },
+       { "[a-zA-Z1-9.]?reddit.com(.*)", "https://discuss.whatever.social/\1",          },
 };
 
+
+static Alias proxyaliases[] = {
+       // Proxy aliases
+       { "tor",             "socks4://127.0.0.1:9050"},
+       { "i2p",             "http://127.0.0.1:4444"},
+       { "proxychains",     "socks5://127.0.0.1:1053"}
+};

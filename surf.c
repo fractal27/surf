@@ -596,13 +596,13 @@ int regex_replace(char **str, regex_t reg, const char *replace) {
        // back references are indicated by char codes 1-31 and none of those chars can be used in the replacement string such as a tab.
        // will not search for matches within replaced text, this will begin searching for the next match after the end of prev match
        // returns:
+       //   -1 if pattern cannot be compiled
        //   -2 if count of back references and capture groups don't match
        //   otherwise returns number of matches that were found and replaced
        //
 
        unsigned int replacements = 0;
        // if regex can't commpile pattern, do nothing
-       // if(!regcomp(&reg, pattern, REG_EENDED)) {
        size_t nmatch = reg.re_nsub;
        regmatch_t m[nmatch + 1];
        const char *rpl, *p;
@@ -648,11 +648,12 @@ int regex_replace(char **str, regex_t reg, const char *replace) {
               free(new);
               replacements++;
        }
-       regfree(&reg);
+       //regfree(&reg);
        // ajust size
        *str = (char *)realloc(*str, strlen(*str) + 1);
        return replacements;
 }
+
 
 void
 loaduri(Client *c, const Arg *a)
@@ -660,6 +661,7 @@ loaduri(Client *c, const Arg *a)
 	struct stat st;
 	char *url, *path, *apath;
 	const char *uri = a->v;
+        gboolean redirected = FALSE;
 
 	if (g_strcmp0(uri, "") == 0)
 		return;
@@ -671,29 +673,28 @@ loaduri(Client *c, const Arg *a)
                }
         }
 
-	if (g_str_has_prefix(uri, "http://")  ||
+        for (int i = 0; i < LENGTH(uri_redirects); i++) {
+               if(uri_redirects[i].regex == NULL) 
+                      continue; // regex not compiled
+
+               url = g_strdup(uri);
+               printf("checking regex `%s` --@> `%s`\n",uri_redirects[i].regex, uri_redirects[i].destination);
+               if(regex_replace(&url, uri_redirects[i].re, 
+                                    uri_redirects[i].destination) > 0){
+                      //printf("url changed: redirecting... to %s\n", url);
+                      redirected = TRUE;
+                      break;
+               }
+        }
+        if(redirected == TRUE){
+               //already redirected: nothing to do.
+        } else if (g_str_has_prefix(uri, "http://")  ||
 	    g_str_has_prefix(uri, "https://") ||
 	    g_str_has_prefix(uri, "file://")  ||
 	    g_str_has_prefix(uri, "webkit://") ||
 	    g_str_has_prefix(uri, "about:")) {
-                int finished = 1;
 
-
-                for (int i = 0; i < LENGTH(uri_redirects); i++) {
-                       url = g_strdup(uri);
-                       printf("checking regex `%s` --@> `%s`\n",uri_redirects[i].regex, uri_redirects[i].destination);
-                       if(regex_replace(&url, uri_redirects[i].re, 
-                                            uri_redirects[i].destination) > 0){
-                              printf("regex is ok: redirecting...");
-                              finished = 1;
-                              break;
-                       }
-                }
-
-                if(!finished)
-                       url = g_strdup(uri);
-
-
+                url = g_strdup(uri);
 
 	} else {
 		if (uri[0] == '~')
@@ -2256,6 +2257,15 @@ main(int argc, char *argv[])
 		defconfig[Inspector].val.i = 1;
 		defconfig[Inspector].prio = 2;
 		break;
+        case 'p':
+                defconfig[ProxyUrl].val.v = EARGF(usage());
+                for(int i = 0;i < LENGTH(proxyaliases); i++){
+                       if(!strcmp(defconfig[ProxyUrl].val.v,proxyaliases[i].alias)){
+                                     defconfig[ProxyUrl].val.v = proxyaliases[i].uri;
+                       }
+                }
+                defconfig[ProxyMode].val.i = CustomProxy;
+                break;
 	case 'r':
 		scriptfile = EARGF(usage());
 		break;
@@ -2308,7 +2318,14 @@ main(int argc, char *argv[])
 #endif
 
 	setup();
+
+        printf("Using proxy:\t`%s`\n", defconfig[ProxyUrl].val.v);
+        printf("Javascript:\t`%s`\n", defconfig[JavaScript].val.i ? "yes" : "no");
+
 	c = newclient(NULL);
+
+
+
 	showview(NULL, c);
 
 	loaduri(c, &arg);
