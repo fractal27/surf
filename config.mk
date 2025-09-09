@@ -19,14 +19,22 @@ WEBEXTLIBS = `pkg-config --libs webkit2gtk-4.1 webkit2gtk-web-extension-4.1 gio-
 
 # includes and libs
 INCS = $(X11INC) $(GTKINC)
+USE_PCRE ?= UNSET
+
 LIBS = $(X11LIB) $(GTKLIB) -lgthread-2.0
 
 # flags
 CPPFLAGS = -DVERSION=\"$(VERSION)\" -DGCR_API_SUBJECT_TO_CHANGE \
            -DLIBPREFIX=\"$(LIBPREFIX)\" -DWEBEXTDIR=\"$(LIBDIR)\" \
-           -D_DEFAULT_SOURCE
+	   -D_DEFAULT_SOURCE
 SURFCFLAGS = -fPIC $(INCS) $(CPPFLAGS)
 WEBEXTCFLAGS = -fPIC $(WEBEXTINC)
+
+ifneq (USE_PCRE, UNSET)
+LIBS += -lpcre
+CPPFLAGS += -DUSE_PCRE
+endif
+
 
 # compiler
 #CC = c99

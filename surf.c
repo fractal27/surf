@@ -11,7 +11,6 @@
 #include <libgen.h>
 #include <limits.h>
 #include <pwd.h>
-#include <regex.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -32,11 +31,31 @@
 #include <X11/Xatom.h>
 #include <glib.h>
 
+
 #include "arg.h"
 #include "common.h"
 
 #define LENGTH(x)               (sizeof(x) / sizeof(x[0]))
 #define CLEANMASK(mask)         (mask & (MODKEY|GDK_SHIFT_MASK))
+
+#ifdef USE_PCRE
+#include <pcre.h>
+
+
+typedef pcre* REG_TYPE;
+#define REGEX_INIT_VARS          const char* error; pcre* pcre_result; int error_offset, ovector[30];
+#define REGEX_COMPILE(re, regex) (!(pcre_result = pcre_compile(regex,0,&error,&error_offset,NULL)))
+#define MAX_OVECTOR_SIZE         32
+
+#else
+#include <regex.h>
+
+typedef regex_t REG_TYPE;
+#define REGEX_INIT_VARS          char regex_error_buffer[REGEX_BUFF_LEN]; int regex_result;
+#define REGEX_COMPILE(re, regex) (regex_result = regcomp(&(re), regex, REG_EXTENDED))
+
+#endif
+
 
 enum { AtomFind, AtomGo, AtomUri, AtomUTF8, AtomLast };
 
@@ -141,30 +160,31 @@ typedef struct {
 	unsigned int stopevent;
 } Button;
 
-typedef struct {
-	const char *uri;
-	Parameter config[ParameterLast];
-	regex_t re;
-} UriParameters;
-
-typedef struct {
-	char *regex;
-	char *file;
-	regex_t re;
-} SiteSpecific;
-
-typedef struct {
-	char *regex;
-	char *destination;
-	regex_t re;
-        size_t nmatches;
-} Redirect;
-
 
 typedef struct {
     const char* alias;
     const char* uri;
 } Alias;
+
+typedef struct {
+	const char *uri;
+	Parameter config[ParameterLast];
+	REG_TYPE re;
+} UriParameters;
+
+typedef struct {
+	char *regex;
+	char *file;
+	REG_TYPE re;
+} SiteSpecific;
+
+typedef struct {
+	char *regex;
+	char *destination;
+	REG_TYPE re;
+        size_t nmatches;
+} Redirect;
+
 
 /* Surf */
 static void die(const char *errstr, ...);
@@ -202,7 +222,15 @@ static void spawn(Client *c, const Arg *a);
 static void msgext(Client *c, char type, const Arg *a);
 static void destroyclient(Client *c);
 static void cleanup(void);
-int regex_replace(char **str, regex_t reg, const char *replace);
+static void show_stats(void);
+int regex_replace(char **str, REG_TYPE reg, const char *replace);
+#ifdef USE_PCRE
+void regex_error_report(const char* pattern, const char* error, int error_offset);
+#else 
+void regex_error_report(int regex_result, regex_t regex, const char* pattern);
+#endif
+
+
 
 /* GTK/WebKit */
 static WebKitWebView *newview(Client *c, WebKitWebView *rv);
@@ -285,6 +313,8 @@ static int modparams[ParameterLast];
 static int spair[2];
 static int insertmode = 0;
 char *argv0;
+static uint32_t stats_resources_accessed = 0;
+static uint32_t stats_resources_blocked = 0;
 
 static ParamName loadtransient[] = {
 	Certificate,
@@ -331,6 +361,7 @@ static ParamName loadfinished[] = {
 /* configuration, allows nested code to access above variables */
 #include "config.h"
 
+
 void
 die(const char *errstr, ...)
 {
@@ -355,6 +386,11 @@ setup(void)
 {
 	GIOChannel *gchanin;
 	GdkDisplay *gdpy;
+
+        // int regex_result;
+        // char regex_error_buffer[REGEX_BUFF_LEN];
+        //
+        REGEX_INIT_VARS
 	int i, j;
 
 	/* clean up any zombies immediately */
@@ -401,49 +437,69 @@ setup(void)
 
 
 	for (i = 0; i < LENGTH(certs); ++i) {
-		if (!regcomp(&(certs[i].re), certs[i].regex, REG_EXTENDED)) {
+                if(!REGEX_COMPILE(certs[i].re, certs[i].regex)){
+		// if (!(regex_result = regcomp(&(certs[i].re), certs[i].regex, REG_EXTENDED))) {
 			certs[i].file = g_strconcat(certdir, "/", certs[i].file,
 			                            NULL);
 		} else {
-			fprintf(stderr, "Could not compile regex: %s\n",
-			        certs[i].regex);
+#ifdef USE_PCRE
+                        regex_error_report(certs[i].regex,error,error_offset);
+#else
+                        regex_error_report(regex_result, certs[i].re, certs[i].regex);
+#endif // USE_PCRE
 			certs[i].regex = NULL;
 		}
 	}
 
         for (i = 0; i < LENGTH(uri_redirects); ++i) {
-		if (regcomp(&(uri_redirects[i].re), uri_redirects[i].regex, REG_EXTENDED)) {
-			fprintf(stderr, "Could not compile regex: %s\n",
-			        uri_redirects[i].regex);
-			uri_redirects[i].regex = NULL;
+                if(REGEX_COMPILE(uri_redirects[i].re, uri_redirects[i].regex)){
+		// if (regex_result = regcomp(&(uri_redirects[i].re), uri_redirects[i].regex, REG_EXTENDED)) {
+#ifdef USE_PCRE         
+                        regex_error_report(uri_redirects[i].regex,error,error_offset);
+#else                   
+                        regex_error_report(regex_result, uri_redirects[i].re, uri_redirects[i].regex);
+#endif // USE_PCRE
+                       /*regerror(regex_result, &(uri_redirects[i].re), regex_error_buffer, REGEX_BUFF_LEN);
+                       fprintf(stderr, "Could not compile regex: `\e[33m%s\e[0m`, with error `\e[31m%s\e[0m`\n",
+                                     uri_redirects[i].regex, regex_error_buffer);*/
+                       uri_redirects[i].regex = NULL;
 		}
 	}
 
 	if (!stylefile) {
 		styledir = buildpath(styledir);
 		for (i = 0; i < LENGTH(styles); ++i) {
-			if (!regcomp(&(styles[i].re), styles[i].regex,
-			    REG_EXTENDED)) {
+                        if(!REGEX_COMPILE(styles[i].re, styles[i].regex)){
+                                printf("Using style file: %s/%s\n",styledir, styles[i].file);
 				styles[i].file = g_strconcat(styledir, "/",
 				                    styles[i].file, NULL);
 			} else {
-				fprintf(stderr, "Could not compile regex: %s\n",
-				        styles[i].regex);
-				styles[i].regex = NULL;
-			}
-		}
-		g_free(styledir);
-	} else {
-		stylefile = buildfile(stylefile);
-	}
+#ifdef USE_PCRE                
+                               regex_error_report(styles[i].regex,error,error_offset);
+#else                          
+                               regex_error_report(regex_result, styles[i].re, styles[i].regex);
+#endif // USE_PCRE
+                               styles[i].regex = NULL;
+                        }
+                 }
+                 g_free(styledir);
+         } else {
+                stylefile = buildfile(stylefile);
+         }
 
 	for (i = 0; i < LENGTH(uriparams); ++i) {
-		if (regcomp(&(uriparams[i].re), uriparams[i].uri,
-		    REG_EXTENDED)) {
-			fprintf(stderr, "Could not compile regex: %s\n",
-			        uriparams[i].uri);
-			uriparams[i].uri = NULL;
-			continue;
+                if( REGEX_COMPILE(uriparams[i].re, uriparams[i].uri )){
+		// if (regex_result = regcomp(&(uriparams[i].re), uriparams[i].uri, REG_EXTENDED)) {
+#ifdef USE_PCRE         
+                       regex_error_report(uriparams[i].uri,error,error_offset);
+#else                   
+                       regex_error_report(regex_result, uriparams[i].re, uriparams[i].uri);
+#endif // USE_PCRE
+                       /*regerror(regex_result, &(uriparams[i].re), regex_error_buffer, REGEX_BUFF_LEN);
+                       fprintf(stderr, "Could not compile regex: `\e[33m%s\e[0m`, error: `\e[31m%s\e[0m`\n",
+                                     uriparams[i].uri, regex_error_buffer);*/
+                       uriparams[i].uri = NULL;
+                       continue;
 		}
 
 		/* copy default parameters with higher priority */
@@ -453,6 +509,30 @@ setup(void)
 		}
 	}
 }
+
+
+#ifdef USE_PCRE
+void
+regex_error_report(const char* pattern,
+              const char* error, int error_offset) // only for pcre; put NULL, 0 here.
+{
+       fprintf(stderr, "\e[31mPCRE compilation error: %s\n", error);
+       if (error_offset >= 0) {
+              fprintf(stderr, "Error offset: %d\n", error_offset);
+              fprintf(stderr, "Pattern near error: %.20s\e[0m\n", pattern + error_offset);
+       }
+}
+#else
+void
+regex_error_report(int regex_result, regex_t regex, const char* pattern) // only for pcre; put NULL, 0 here.
+{
+       char regex_error_buffer[REGEX_BUFF_LEN];
+       regerror(regex_result, &regex, regex_error_buffer, REGEX_BUFF_LEN);
+       fprintf(stderr, "\e[31mREGEXERROR: \e[0m`\e[33m%s\e[0m`: `\e[31m%s\e[0m`\n",
+                     pattern, regex_error_buffer);
+}
+#endif
+
 
 void
 sigchld(int unused)
@@ -590,7 +670,7 @@ newclient(Client *rc)
 	return c;
 }
 
-int regex_replace(char **str, regex_t reg, const char *replace) {
+int regex_replace(char **str, REG_TYPE reg, const char *replace) {
        // replaces regex in pattern with replacement observing capture groups
        // *str MUST be free-able, i.e. obtained by strdup, malloc, ...
        // back references are indicated by char codes 1-31 and none of those chars can be used in the replacement string such as a tab.
@@ -600,8 +680,113 @@ int regex_replace(char **str, regex_t reg, const char *replace) {
        //   -2 if count of back references and capture groups don't match
        //   otherwise returns number of matches that were found and replaced
        //
-
        unsigned int replacements = 0;
+
+#ifdef USE_PCRE
+       // pcre *reg = pcre_compile(pattern, 0, &error, &error_offset, NULL);
+       if(!reg) return -1;
+       int rc;
+    int ovector[30]; // must be multiple of 3, size depends on max capture groups, 30 supports up to 9 groups
+    int nmatch = 0;
+
+    // get number of capture groups
+    if (pcre_fullinfo(reg, NULL, PCRE_INFO_CAPTURECOUNT, &nmatch) < 0) {
+        return -1; // error getting capture count
+    }
+
+    // count back references in replace string
+    int br = 0;
+    const char *p = replace;
+    while (1) {
+        while (*++p > 31); // skip printable chars
+        if (*p) br++;
+        else break;
+    }
+    if (br > nmatch) {
+        return -2;
+    }
+
+    char *search_start = *str;
+    int start_offset = 0;
+    int subject_len = strlen(*str);
+
+    while ((rc = pcre_exec(reg, NULL, *str, subject_len, start_offset, 0, ovector, sizeof(ovector)/sizeof(ovector[0]))) >= 0) {
+        // rc is number of matches including whole match and capture groups
+        // ovector contains pairs of offsets for each match: ovector[2*i], ovector[2*i+1]
+
+        // Calculate new string length:
+        // length before match + length of replacement (with backrefs replaced) + length after match
+        size_t new_len = 0;
+        new_len += ovector[0]; // before match
+
+        // Calculate length of replacement with backrefs expanded
+        const char *rpl = replace;
+        const char *rp = replace;
+        while (1) {
+            while (*++rp > 31); // skip printable chars
+            if (*rp == 0) break;
+            int c = *rp;
+            new_len += (rp - rpl); // add literal part
+            if (c >= 1 && c < rc) {
+                // add length of capture group c
+                int start = ovector[2*c];
+                int end = ovector[2*c+1];
+                if (start >= 0 && end >= 0 && end >= start) {
+                    new_len += (end - start);
+                }
+            }
+            rpl = rp + 1;
+            rp = rpl;
+        }
+        new_len += strlen(rpl); // trailing literal part
+        new_len += subject_len - ovector[1]; // after match
+
+        char *new_str = malloc(new_len + 1);
+        if (!new_str) exit(EXIT_FAILURE);
+        new_str[0] = '\0';
+
+        // Copy before match
+        strncat(new_str, *str, ovector[0]);
+
+        // Copy replacement with backrefs expanded
+        rpl = replace;
+        rp = replace;
+        while (1) {
+            while (*++rp > 31);
+            if (*rp == 0) break;
+            int c = *rp;
+            strncat(new_str, rpl, rp - rpl);
+            if (c >= 1 && c < rc) {
+                int start = ovector[2*c];
+                int end = ovector[2*c+1];
+                if (start >= 0 && end >= 0 && end >= start) {
+                    strncat(new_str, *str + start, end - start);
+                }
+            }
+            rpl = rp + 1;
+            rp = rpl;
+        }
+        strcat(new_str, rpl);
+
+        // Copy after match
+        strcat(new_str, *str + ovector[1]);
+
+        free(*str);
+        *str = new_str;
+
+        // Update subject_len and start_offset for next search
+        subject_len = strlen(*str);
+        start_offset = ovector[0] + (int)(strlen(new_str) - (subject_len - ovector[1]));
+
+        replacements++;
+    }
+
+    // Optionally shrink memory
+    *str = realloc(*str, strlen(*str) + 1);
+
+    return replacements;
+
+#else
        // if regex can't commpile pattern, do nothing
        size_t nmatch = reg.re_nsub;
        regmatch_t m[nmatch + 1];
@@ -614,8 +799,7 @@ int regex_replace(char **str, regex_t reg, const char *replace) {
               if(*p) br++;
               else break;
        } // if br is not equal to nmatch, leave
-       if(br != nmatch) {
-              regfree(&reg);
+       if(br > nmatch) {
               return -2;
        }
        // look for matches and replace
@@ -652,6 +836,7 @@ int regex_replace(char **str, regex_t reg, const char *replace) {
        // ajust size
        *str = (char *)realloc(*str, strlen(*str) + 1);
        return replacements;
+#endif
 }
 
 
@@ -850,10 +1035,15 @@ seturiparameters(Client *c, const char *uri, ParamName *params)
 {
 	Parameter *config, *uriconfig = NULL;
 	int i, p;
+        int ovector[MAX_OVECTOR_SIZE];
 
 	for (i = 0; i < LENGTH(uriparams); ++i) {
 		if (uriparams[i].uri &&
+#ifdef USE_PCRE
+		    pcre_exec(uriparams[i].re, NULL, uri, strlen(uri), 0, 0, ovector, MAX_OVECTOR_SIZE)) {
+#else
 		    !regexec(&(uriparams[i].re), uri, 0, NULL, 0)) {
+#endif
 			uriconfig = uriparams[i].config;
 			break;
 		}
@@ -1008,10 +1198,17 @@ const char *
 getcert(const char *uri)
 {
 	int i;
+#ifdef USE_PCRE
+        int ovector[MAX_OVECTOR_SIZE];
+#endif // USE_PCRE
 
 	for (i = 0; i < LENGTH(certs); ++i) {
 		if (certs[i].regex &&
+#ifdef USE_PCRE
+                    pcre_exec(certs[i].re, NULL, uri, strlen(uri), 0, 0, ovector, MAX_OVECTOR_SIZE))
+#else
 		    !regexec(&(certs[i].re), uri, 0, NULL, 0))
+#endif
 			return certs[i].file;
 	}
 
@@ -1049,13 +1246,20 @@ const char *
 getstyle(const char *uri)
 {
 	int i;
+#ifdef USE_PCRE
+        int ovector[MAX_OVECTOR_SIZE];
+#endif // USE_PCRE
 
 	if (stylefile)
 		return stylefile;
 
 	for (i = 0; i < LENGTH(styles); ++i) {
 		if (styles[i].regex &&
+#ifdef USE_PCRE
+                    pcre_exec(styles[i].re, NULL, uri, strlen(uri), 0, 0, ovector, MAX_OVECTOR_SIZE))
+#else
 		    !regexec(&(styles[i].re), uri, 0, NULL, 0))
+#endif
 			return styles[i].file;
 	}
 
@@ -1068,7 +1272,7 @@ setstyle(Client *c, const char *file)
 	gchar *style;
 
 	if (!g_file_get_contents(file, &style, NULL, NULL)) {
-		fprintf(stderr, "Could not read style file: %s\n", file);
+		fprintf(stderr, "Could not read style file: `%s`\n", file);
 		return;
 	}
 
@@ -1223,6 +1427,22 @@ cleanup(void)
 	g_free(stylefile);
 	g_free(cachedir);
 	XCloseDisplay(dpy);
+}
+
+void
+show_stats(void)
+{
+       double perc_res_blocked = (double)(stats_resources_accessed + stats_resources_blocked)
+                                                 / stats_resources_blocked;
+       printf(" ----------------------------------\n"
+              " %05d   - prefixes in the blocklist\n"
+              "  %04d    - total resources accessed\n"
+              "  %04lu    - total resources blocked\n"
+              " %5.2lf%    - resources blocked\n",
+              BLOCKLIST_N,
+              stats_resources_accessed,
+              stats_resources_blocked,
+              perc_res_blocked);
 }
 
 WebKitWebView *
@@ -1876,17 +2096,18 @@ decideresource(WebKitPolicyDecision *d, Client *c)
 			webkit_policy_decision_ignore(d);
 			return;
 		}
-        } else {
-#ifdef USE_BLOCKLIST
-               for(int i = 0; i < BLOCKLIST_N; i++){
-                      if(g_str_has_prefix(uri, BLOCKLIST[i])){
-                             webkit_policy_decision_ignore(d);
-                             printf("Not allowed: URI=`%s`|BLOCKED=`%s*`|INDEX=%i\n", uri, BLOCKLIST[i], i);
-                             return;
-                      }
-               }
-#endif
         }
+#ifdef USE_BLOCKLIST
+        for(int i = 0; i < BLOCKLIST_N; i++){
+               if(g_str_has_prefix(uri, BLOCKLIST[i])){
+                      webkit_policy_decision_ignore(d);
+                      printf("Not allowed: URI=`%s`|BLOCKED=`%s*`|INDEX=%i\n", uri, BLOCKLIST[i], i);
+                      stats_resources_blocked++;
+                      return;
+               }
+        }
+        stats_resources_accessed++;
+#endif
 
 	if (webkit_response_policy_decision_is_mime_type_supported(r)) {
 		webkit_policy_decision_use(d);
@@ -2071,10 +2292,12 @@ stop(Client *c, const Arg *a)
 	webkit_web_view_stop_loading(c->view);
 }
 
+
 void
 quit(Client *c, const Arg *a)
 {
 	cleanup();
+        show_stats();
 	exit(0);
 }
 
