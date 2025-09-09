@@ -22,10 +22,8 @@ options:
 surf: $(OBJ)
 	$(CC) $(SURFLDFLAGS) $(LDFLAGS) -o $@ $(OBJ) $(LIBS)
 
-$(OBJ) $(WOBJ): config.h common.h config.mk
+$(OBJ) $(WOBJ): common.h config.mk
 
-config.h:
-	cp config.def.h $@
 
 $(OBJ): $(SRC)
 	$(CC) $(SURFCFLAGS) $(CFLAGS) -c $(SRC)
@@ -39,7 +37,7 @@ $(WOBJ): $(WSRC)
 clean:
 	rm -f surf $(OBJ)
 	rm -f $(WLIB) $(WOBJ)
-	rm -f config.h surf-$(VERSION).tar.gz
+	rm -f surf-$(VERSION).tar.gz
 	rm -f *.orig *.rej
 
 dist: clean

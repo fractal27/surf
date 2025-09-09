@@ -37,4 +37,4 @@ endif
 
 
 # compiler
-#CC = c99
+CC = c99
