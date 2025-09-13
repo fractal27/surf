@@ -9,7 +9,7 @@ static char *cachedir       = "~/.surf/cache/";
 static char *cookiefile     = "~/.surf/cookies.txt";
 
 #define HOMEPAGE         "https://duckduckgo.com/html"
-#define DEFAULT_PROXY    "socks4://127.0.0.1:9050" 
+#define DEFAULT_PROXY    (char*)NULL // "socks4://127.0.0.1:9050" 
 #define EDIT             { .v = (char *[]){ "/bin/sh", "-c", "editurl", NULL } }
 #define USE_BLOCKLIST
 #include "blocklist.h"
@@ -233,5 +233,6 @@ static Alias proxyaliases[] = {
        // Proxy aliases
        { "tor",             "socks4://127.0.0.1:9050"},
        { "i2p",             "http://127.0.0.1:4444"},
-       { "proxychains",     "socks5://127.0.0.1:1053"}
+       { "proxychains",     "socks5://127.0.0.1:1053"},
+       { "none",     (char*) NULL}
 };

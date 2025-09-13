@@ -2,6 +2,8 @@
 INSTDIR=~/.surf
 SRCD=.
 
+all:
+
 install: $(SRCD)/styles $(SRCD)/scripts $(SRCD)/script.js
 	mkdir -p $(INSTDIR)
 	mkdir -p $(INSTDIR)/styles
@@ -12,4 +14,6 @@ install: $(SRCD)/styles $(SRCD)/scripts $(SRCD)/script.js
 clean:
 	rm -rf $(INSTDIR)/styles/
 	rm -f $(INSTDIR)/script.js
-.PHONY: install clean
+
+
+.PHONY: all install clean

@@ -1035,7 +1035,9 @@ seturiparameters(Client *c, const char *uri, ParamName *params)
 {
 	Parameter *config, *uriconfig = NULL;
 	int i, p;
-        int ovector[MAX_OVECTOR_SIZE];
+#ifdef USE_PCRE
+    int ovector[MAX_OVECTOR_SIZE];
+#endif
 
 	for (i = 0; i < LENGTH(uriparams); ++i) {
 		if (uriparams[i].uri &&
@@ -1436,8 +1438,8 @@ show_stats(void)
                                                  / stats_resources_blocked;
        printf(" ----------------------------------\n"
               " %05d   - prefixes in the blocklist\n"
-              "  %04d    - total resources accessed\n"
-              "  %04lu    - total resources blocked\n"
+              "  %04u    - total resources accessed\n"
+              "  %04u    - total resources blocked\n"
               " %5.2lf%    - resources blocked\n",
               BLOCKLIST_N,
               stats_resources_accessed,
@@ -2542,8 +2544,8 @@ main(int argc, char *argv[])
 
 	setup();
 
-        printf("Using proxy:\t`%s`\n", defconfig[ProxyUrl].val.v);
-        printf("Javascript:\t`%s`\n", defconfig[JavaScript].val.i ? "yes" : "no");
+	printf("Using proxy:\t`%s`\n", (const char*)defconfig[ProxyUrl].val.v);
+	printf("Javascript:\t`%s`\n", defconfig[JavaScript].val.i ? "yes" : "no");
 
 	c = newclient(NULL);
 
